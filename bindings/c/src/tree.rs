@@ -1,3 +1,5 @@
+use crate::{TaffyResult_TaffyLayout, TaffyResult_TaffyNodeId, TaffyResult_TaffyStyleMutRef};
+
 use super::{
     bail, bail_if_null, ok, try_or, TaffyFFIDefault, TaffyFFIResult, TaffyLayout, TaffyMeasureMode, TaffyResult,
     TaffyReturnCode, TaffySize, TaffyStyleMutRef,
@@ -158,7 +160,7 @@ pub unsafe extern "C" fn TaffyTree_PrintTree(raw_tree: TaffyTreeMutRef, node_id:
 /// Create a new Node in the TaffyTree. Returns a NodeId handle to the node.
 #[no_mangle]
 #[allow(clippy::missing_safety_doc)]
-pub unsafe extern "C" fn TaffyTree_NewNode(raw_tree: TaffyTreeMutRef) -> TaffyResult<TaffyNodeId> {
+pub unsafe extern "C" fn TaffyTree_NewNode(raw_tree: TaffyTreeMutRef) -> TaffyResult_TaffyNodeId {
     with_tree_mut!(raw_tree, tree, {
         // TODO: make new_leaf infallible
         let node_id = tree.inner.new_leaf(core::Style::default()).unwrap();
@@ -200,7 +202,7 @@ pub unsafe extern "C" fn TaffyTree_AppendChild(
 pub unsafe extern "C" fn TaffyTree_GetStyleMut(
     raw_tree: TaffyTreeMutRef,
     node_id: TaffyNodeId,
-) -> TaffyResult<TaffyStyleMutRef> {
+) -> TaffyResult_TaffyStyleMutRef {
     with_tree_mut!(raw_tree, tree, {
         let style = try_or!(InvalidNodeId, tree.inner.try_style_mut(node_id.into()));
         ok!(style as *mut core::Style as TaffyStyleMutRef);
@@ -231,7 +233,7 @@ pub unsafe extern "C" fn TaffyTree_SetNodeContext(
 pub unsafe extern "C" fn TaffyTree_GetLayout(
     raw_tree: TaffyTreeConstRef,
     node_id: TaffyNodeId,
-) -> TaffyResult<TaffyLayout> {
+) -> TaffyResult_TaffyLayout {
     with_tree!(raw_tree, tree, {
         let layout = try_or!(InvalidNodeId, tree.inner.layout(node_id.into()));
         ok!(TaffyLayout {

@@ -2,6 +2,8 @@
 
 use taffy::prelude as core;
 
+use crate::{TaffyFFIResult, TaffyNodeId, TaffyStyleMutRef};
+
 use super::{TaffyFFIDefault, TaffyReturnCode};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -214,4 +216,52 @@ impl From<core::Line<core::GridPlacement>> for TaffyGridPlacement {
         let (start, span, end) = placement.into_raw_parts();
         Self { start, span, end }
     }
+}
+
+#[repr(C)]
+pub struct TaffyResult_TaffyLayout {
+    pub return_code: TaffyReturnCode,
+    pub value: TaffyLayout
+}
+
+impl TaffyFFIResult for TaffyResult_TaffyLayout {
+    fn from_value(value: TaffyLayout) -> Self {
+        Self { return_code: TaffyReturnCode::Ok, value }
+    }
+    fn from_return_code(return_code: TaffyReturnCode) -> Self {
+        Self { return_code, value: TaffyLayout { x: 0.0, y: 0.0, width: 0.0, height: 0.0 } }
+    }
+    type Value = TaffyLayout;
+}
+
+#[repr(C)]
+pub struct TaffyResult_TaffyNodeId {
+    pub return_code: TaffyReturnCode,
+    pub value: TaffyNodeId
+}
+
+impl TaffyFFIResult for TaffyResult_TaffyNodeId {
+    fn from_value(value: TaffyNodeId) -> Self {
+        Self { return_code: TaffyReturnCode::Ok, value }
+    }
+    fn from_return_code(return_code: TaffyReturnCode) -> Self {
+        Self { return_code, value: TaffyNodeId::default() }
+    }
+    type Value = TaffyNodeId;
+}
+
+#[repr(C)]
+pub struct TaffyResult_TaffyStyleMutRef {
+    pub return_code: TaffyReturnCode,
+    pub value: TaffyStyleMutRef
+}
+
+impl TaffyFFIResult for TaffyResult_TaffyStyleMutRef {
+    fn from_value(value: TaffyStyleMutRef) -> Self {
+        Self { return_code: TaffyReturnCode::Ok, value }
+    }
+    fn from_return_code(return_code: TaffyReturnCode) -> Self {
+        Self { return_code, value: std::ptr::null_mut() }
+    }
+    type Value = TaffyStyleMutRef;
 }

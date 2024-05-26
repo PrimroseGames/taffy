@@ -16,3 +16,6 @@ crate-type = ["staticlib", "cdylib", "rlib"]
 
 [dependencies]
 taffy = { path = "../.." }
+
+[build-dependencies]
+csbindgen = "1.9.1"
