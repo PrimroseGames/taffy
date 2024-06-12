@@ -192,6 +192,19 @@ pub unsafe extern "C" fn TaffyTree_AppendChild(
     })
 }
 
+#[no_mangle]
+#[allow(clippy::missing_safety_doc)]
+pub unsafe extern "C" fn TaffyTree_RemoveChild(
+    raw_tree: TaffyTreeMutRef,
+    parent_node_id: TaffyNodeId,
+    child_node_id: TaffyNodeId,
+) -> TaffyReturnCode {
+    with_tree_mut!(raw_tree, tree, {
+        try_or!(InvalidNodeId, tree.inner.remove_child(parent_node_id.into(), child_node_id.into()));
+        ok!(TaffyReturnCode::Ok);
+    })
+}
+
 // -------------------------------------------------
 // Style and Layout access
 // -------------------------------------------------
