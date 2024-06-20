@@ -253,7 +253,13 @@ pub unsafe extern "C" fn TaffyTree_GetLayout(
             x: layout.location.x,
             y: layout.location.y,
             width: layout.size.width,
-            height: layout.size.height
+            height: layout.size.height,
+            content_width: layout.content_size.width,
+            content_height: layout.content_size.height,
+            border_left: layout.border.left,
+            border_right: layout.border.right,
+            border_top: layout.border.top,
+            border_bottom: layout.border.bottom,
         });
     })
 }

@@ -80,10 +80,16 @@ pub struct TaffyLayout {
     pub y: f32,
     pub width: f32,
     pub height: f32,
+    pub content_width: f32,
+    pub content_height: f32,
+    pub border_left: f32,
+    pub border_right: f32,
+    pub border_top: f32,
+    pub border_bottom: f32,
 }
 impl TaffyFFIDefault for TaffyLayout {
     fn default() -> Self {
-        TaffyLayout { x: 0.0, y: 0.0, width: 0.0, height: 0.0 }
+        TaffyLayout { x: 0.0, y: 0.0, width: 0.0, height: 0.0, content_width: 0.0, content_height: 0.0, border_left: 0.0, border_right: 0.0, border_top: 0.0, border_bottom: 0.0 }
     }
 }
 
@@ -229,7 +235,7 @@ impl TaffyFFIResult for TaffyResult_TaffyLayout {
         Self { return_code: TaffyReturnCode::Ok, value }
     }
     fn from_return_code(return_code: TaffyReturnCode) -> Self {
-        Self { return_code, value: TaffyLayout { x: 0.0, y: 0.0, width: 0.0, height: 0.0 } }
+        Self { return_code, value: TaffyLayout { x: 0.0, y: 0.0, width: 0.0, height: 0.0, content_width: 0.0, content_height: 0.0, border_left: 0.0, border_right: 0.0, border_top: 0.0, border_bottom: 0.0 } }
     }
     type Value = TaffyLayout;
 }

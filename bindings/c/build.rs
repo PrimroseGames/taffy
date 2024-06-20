@@ -6,15 +6,15 @@ fn main() {
         .input_extern_file("src/tree.rs")
         .input_extern_file("src/value.rs")
         .input_extern_file("src/error.rs")
-        .csharp_dll_name("ctaffy")
+        .csharp_dll_name("primrose_rust")
         .csharp_dll_name_if("PRIMROSE_IOS", "__Internal")
-        .csharp_namespace("Primrose.Taffy.Native")
+        .csharp_namespace("Primrose.Native.taffy")
          //.csharp_imported_namespaces("MyLib")
         /* .csharp_type_rename(|rust_type_name| match rust_type_name {     // optional, default: `|x| x`
             //"FfiConfiguration" => "Configuration".into(),
             _ => x,
         })*/
-        .generate_csharp_file("../../../PrimroseEngine/Engine/Source/Taffy.g.cs")
+        .generate_csharp_file("../../../PrimroseEngine/Engine/Source/Native/Native_taffy.g.cs")
        
         .unwrap();
 }
