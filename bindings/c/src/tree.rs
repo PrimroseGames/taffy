@@ -153,6 +153,15 @@ pub unsafe extern "C" fn TaffyTree_PrintTree(raw_tree: TaffyTreeMutRef, node_id:
     })
 }
 
+#[no_mangle]
+#[allow(clippy::missing_safety_doc)]
+pub unsafe extern "C" fn TaffyTree_MarkDirty(raw_tree: TaffyTreeMutRef, node_id: TaffyNodeId) -> TaffyReturnCode {
+    with_tree_mut!(raw_tree, tree, {
+        tree.inner.mark_dirty(node_id.into()).expect("Invalid node id");
+        TaffyReturnCode::Ok
+    })
+}
+
 // -------------------------------------------------
 // Tree manipulation
 // -------------------------------------------------

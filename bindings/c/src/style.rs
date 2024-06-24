@@ -1,11 +1,12 @@
 //! Public API for C FFI
 
+use widestring::U16Str;
 use super::{
     debug_assert_non_null, TaffyAlignContent, TaffyAlignItems, TaffyDimension, TaffyDisplay, TaffyEdge,
     TaffyFlexDirection, TaffyFlexWrap, TaffyGridAutoFlow, TaffyGridPlacement, TaffyOverflow, TaffyPosition,
     TaffyReturnCode, TaffyStyleConstRef, TaffyStyleMutRef, TaffyUnit,
 };
-use taffy::prelude as core;
+use taffy::{prelude as core, TrackSizingFunction};
 
 /// Assert that the passed raw style pointer is non-null
 /// Then give the passed expression access to the value of the inner [`core::Style`] struct pointed to by the raw style pointer
@@ -645,3 +646,38 @@ pub unsafe extern "C" fn TaffyStyle_SetGridRow(
 ) -> TaffyReturnCode {
     with_style_mut!(raw_style, style, style.grid_row = placement.into())
 }
+
+#[repr(C)]
+pub struct TaffyTrackingFunction {
+    pub min: f32,
+    pub max: f32,
+    pub track: f32,
+}
+
+#[repr(C)]
+pub struct PtrAndLength {
+    pub ptr: *const u16,
+    pub len: usize,
+}
+
+/*
+// TODO
+// ? https://github.com/DioxusLabs/taffy/issues/204
+// ? https://github.com/DioxusLabs/blitz/pull/76/commits/dc48c232eb5838d513ef14a0db3874b1ebb51e54
+
+#[no_mangle]
+#[allow(clippy::missing_safety_doc)]
+pub unsafe extern "C" fn TaffyStyle_SetGridTemplateColumn(raw_style:TaffyStyleMutRef, count: i32, tracking_functions: *mut PtrAndLength) -> TaffyReturnCode {
+    let style = unsafe { &mut *(raw_style as *mut core::Style) };
+    let grid_template_columns = &mut style.grid_template_columns;
+
+    grid_template_columns.clear();
+    for i in 0..count {
+        let func = unsafe { &(*tracking_functions.add(i as usize)) };
+        let cstr = U16Str::from_ptr(func.ptr, func.len);
+        let track = cstr.to_string_lossy().as_str();
+        grid_template_columns.push(TrackSizingFunction::try_from(track).unwrap());
+    }
+
+    TaffyReturnCode::Ok
+}*/
