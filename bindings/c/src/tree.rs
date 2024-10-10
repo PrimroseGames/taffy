@@ -117,7 +117,7 @@ pub unsafe extern "C" fn TaffyTree_ComputeLayout(
             tree.inner.compute_layout_with_measure(
                 node_id.into(),
                 available_space,
-                |known_dimensions, available_space, _node_id, node_context| {
+                |known_dimensions, available_space, _node_id, node_context, style| {
                     let (width, width_measure_mode) = match (known_dimensions.width, available_space.width) {
                         (Some(width), _) => (width, TaffyMeasureMode::Exact),
                         (None, AvailableSpace::Definite(width)) => (width, TaffyMeasureMode::FitContent),
