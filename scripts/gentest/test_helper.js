@@ -200,16 +200,21 @@ function describeElement(e) {
   let boundingRect = e.getBoundingClientRect();
   let parentBoundingRect = e.parentNode.getBoundingClientRect();
 
+  const computedStyle = getComputedStyle(e);
+
   return {
     style: {
       display: parseEnum(e.style.display),
+      boxSizing: parseEnum(computedStyle.boxSizing),
 
       position: parseEnum(e.style.position),
       direction: parseEnum(e.style.direction),
-      flexDirection: parseEnum(e.style.flexDirection),
 
       writingMode: parseEnum(e.style.writingMode),
 
+      textAlign: parseEnum(e.style.textAlign),
+
+      flexDirection: parseEnum(e.style.flexDirection),
       flexWrap: parseEnum(e.style.flexWrap),
       overflowX: parseEnum(e.style.overflowX),
       overflowY: parseEnum(e.style.overflowY),
@@ -324,6 +329,15 @@ function describeElement(e) {
 
     children: Array.from(e.children).map(c => describeElement(c)),
   };
+}
+
+function getTestData() {
+  document.body.className = "border-box";
+  const borderBoxData = describeElement(document.getElementById('test-root'));
+  document.body.className = "content-box";
+  const contentBoxData = describeElement(document.getElementById('test-root'));
+
+  return JSON.stringify({ borderBoxData, contentBoxData });
 }
 
 // Useful when developing this script. Logs the parsed style to the console when any test fixture is opened in a browser.

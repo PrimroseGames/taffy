@@ -5,10 +5,11 @@ use crate::geometry::AbstractAxis;
 use crate::geometry::{Line, Point, Rect, Size};
 use crate::style::{
     AlignItems, AlignSelf, AvailableSpace, Dimension, LengthPercentageAuto, MaxTrackSizingFunction,
-    MinTrackSizingFunction, Overflow, Style,
+    MinTrackSizingFunction, Overflow,
 };
 use crate::tree::{LayoutPartialTree, LayoutPartialTreeExt, NodeId, SizingMode};
 use crate::util::{MaybeMath, MaybeResolve, ResolveOrZero};
+use crate::{BoxSizing, GridItemStyle, LengthPercentage};
 use core::ops::Range;
 
 /// Represents a single grid item
@@ -32,6 +33,8 @@ pub(in super::super) struct GridItem {
 
     /// The item's overflow style
     pub overflow: Point<Overflow>,
+    /// The item's box_sizing style
+    pub box_sizing: BoxSizing,
     /// The item's size style
     pub size: Size<Dimension>,
     /// The item's min_size style
@@ -40,6 +43,10 @@ pub(in super::super) struct GridItem {
     pub max_size: Size<Dimension>,
     /// The item's aspect_ratio style
     pub aspect_ratio: Option<f32>,
+    /// The item's padding style
+    pub padding: Rect<LengthPercentage>,
+    /// The item's border style
+    pub border: Rect<LengthPercentage>,
     /// The item's margin style
     pub margin: Rect<LengthPercentageAuto>,
     /// The item's align_self property, or the parent's align_items property is not set
@@ -86,11 +93,11 @@ pub(in super::super) struct GridItem {
 
 impl GridItem {
     /// Create a new item given a concrete placement in both axes
-    pub fn new_with_placement_style_and_order(
+    pub fn new_with_placement_style_and_order<S: GridItemStyle>(
         node: NodeId,
         col_span: Line<OriginZeroLine>,
         row_span: Line<OriginZeroLine>,
-        style: &Style,
+        style: S,
         parent_align_items: AlignItems,
         parent_justify_items: AlignItems,
         source_order: u16,
@@ -100,14 +107,17 @@ impl GridItem {
             source_order,
             row: row_span,
             column: col_span,
-            overflow: style.overflow,
-            size: style.size,
-            min_size: style.min_size,
-            max_size: style.max_size,
-            aspect_ratio: style.aspect_ratio,
-            margin: style.margin,
-            align_self: style.align_self.unwrap_or(parent_align_items),
-            justify_self: style.justify_self.unwrap_or(parent_justify_items),
+            overflow: style.overflow(),
+            box_sizing: style.box_sizing(),
+            size: style.size(),
+            min_size: style.min_size(),
+            max_size: style.max_size(),
+            aspect_ratio: style.aspect_ratio(),
+            padding: style.padding(),
+            border: style.border(),
+            margin: style.margin(),
+            align_self: style.align_self().unwrap_or(parent_align_items),
+            justify_self: style.justify_self().unwrap_or(parent_justify_items),
             baseline: None,
             baseline_shim: 0.0,
             row_indexes: Line { start: 0, end: 0 }, // Properly initialised later
@@ -232,9 +242,26 @@ impl GridItem {
         let margins = self.margins_axis_sums_with_baseline_shims(inner_node_size.width);
 
         let aspect_ratio = self.aspect_ratio;
-        let inherent_size = self.size.maybe_resolve(grid_area_size).maybe_apply_aspect_ratio(aspect_ratio);
-        let min_size = self.min_size.maybe_resolve(grid_area_size).maybe_apply_aspect_ratio(aspect_ratio);
-        let max_size = self.max_size.maybe_resolve(grid_area_size).maybe_apply_aspect_ratio(aspect_ratio);
+        let padding = self.padding.resolve_or_zero(grid_area_size);
+        let border = self.border.resolve_or_zero(grid_area_size);
+        let padding_border_size = (padding + border).sum_axes();
+        let box_sizing_adjustment =
+            if self.box_sizing == BoxSizing::ContentBox { padding_border_size } else { Size::ZERO };
+        let inherent_size = self
+            .size
+            .maybe_resolve(grid_area_size)
+            .maybe_apply_aspect_ratio(aspect_ratio)
+            .maybe_add(box_sizing_adjustment);
+        let min_size = self
+            .min_size
+            .maybe_resolve(grid_area_size)
+            .maybe_apply_aspect_ratio(aspect_ratio)
+            .maybe_add(box_sizing_adjustment);
+        let max_size = self
+            .max_size
+            .maybe_resolve(grid_area_size)
+            .maybe_apply_aspect_ratio(aspect_ratio)
+            .maybe_add(box_sizing_adjustment);
 
         let grid_area_minus_item_margins_size = grid_area_size.maybe_sub(margins);
 
@@ -348,7 +375,7 @@ impl GridItem {
         tree.measure_child_size(
             self.node,
             known_dimensions,
-            available_space,
+            inner_node_size,
             available_space.map(|opt| match opt {
                 Some(size) => AvailableSpace::Definite(size),
                 None => AvailableSpace::MinContent,
@@ -387,7 +414,7 @@ impl GridItem {
         tree.measure_child_size(
             self.node,
             known_dimensions,
-            available_space,
+            inner_node_size,
             available_space.map(|opt| match opt {
                 Some(size) => AvailableSpace::Definite(size),
                 None => AvailableSpace::MaxContent,
@@ -419,6 +446,7 @@ impl GridItem {
     ///   - If the item’s computed preferred size behaves as auto or depends on the size of its containing block in the relevant axis:
     ///     Its minimum contribution is the outer size that would result from assuming the item’s used minimum size as its preferred size;
     ///   - Else the item’s minimum contribution is its min-content contribution.
+    ///
     /// Because the minimum contribution often depends on the size of the item’s content, it is considered a type of intrinsic size contribution.
     /// See: https://www.w3.org/TR/css-grid-1/#min-size-auto
     pub fn minimum_contribution(
@@ -429,13 +457,23 @@ impl GridItem {
         known_dimensions: Size<Option<f32>>,
         inner_node_size: Size<Option<f32>>,
     ) -> f32 {
+        let padding = self.padding.resolve_or_zero(inner_node_size);
+        let border = self.border.resolve_or_zero(inner_node_size);
+        let padding_border_size = (padding + border).sum_axes();
+        let box_sizing_adjustment =
+            if self.box_sizing == BoxSizing::ContentBox { padding_border_size } else { Size::ZERO };
         let size = self
             .size
             .maybe_resolve(inner_node_size)
             .maybe_apply_aspect_ratio(self.aspect_ratio)
+            .maybe_add(box_sizing_adjustment)
             .get(axis)
             .or_else(|| {
-                self.min_size.maybe_resolve(inner_node_size).maybe_apply_aspect_ratio(self.aspect_ratio).get(axis)
+                self.min_size
+                    .maybe_resolve(inner_node_size)
+                    .maybe_apply_aspect_ratio(self.aspect_ratio)
+                    .maybe_add(box_sizing_adjustment)
+                    .get(axis)
             })
             .or_else(|| self.overflow.get(axis).maybe_into_automatic_min_size())
             .unwrap_or_else(|| {

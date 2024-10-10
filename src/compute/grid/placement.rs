@@ -4,15 +4,16 @@ use super::types::{CellOccupancyMatrix, CellOccupancyState, GridItem};
 use super::OriginZeroLine;
 use crate::geometry::Line;
 use crate::geometry::{AbsoluteAxis, InBothAbsAxis};
-use crate::style::{AlignItems, GridAutoFlow, OriginZeroGridPlacement, Style};
+use crate::style::{AlignItems, GridAutoFlow, OriginZeroGridPlacement};
 use crate::tree::NodeId;
 use crate::util::sys::Vec;
+use crate::GridItemStyle;
 
 /// 8.5. Grid Item Placement Algorithm
 /// Place items into the grid, generating new rows/column into the implicit grid as required
 ///
 /// [Specification](https://www.w3.org/TR/css-grid-2/#auto-placement-algo)
-pub(super) fn place_grid_items<'a, ChildIter>(
+pub(super) fn place_grid_items<'a, S, ChildIter>(
     cell_occupancy_matrix: &mut CellOccupancyMatrix,
     items: &mut Vec<GridItem>,
     children_iter: impl Fn() -> ChildIter,
@@ -20,7 +21,8 @@ pub(super) fn place_grid_items<'a, ChildIter>(
     align_items: AlignItems,
     justify_items: AlignItems,
 ) where
-    ChildIter: Iterator<Item = (usize, NodeId, &'a Style)>,
+    S: GridItemStyle + 'a,
+    ChildIter: Iterator<Item = (usize, NodeId, S)>,
 {
     let primary_axis = grid_auto_flow.primary_axis();
     let secondary_axis = primary_axis.other_axis();
@@ -28,10 +30,12 @@ pub(super) fn place_grid_items<'a, ChildIter>(
     let map_child_style_to_origin_zero_placement = {
         let explicit_col_count = cell_occupancy_matrix.track_counts(AbsoluteAxis::Horizontal).explicit;
         let explicit_row_count = cell_occupancy_matrix.track_counts(AbsoluteAxis::Vertical).explicit;
-        move |(index, node, style): (usize, NodeId, &'a Style)| -> (_, _, _, &'a Style) {
+        move |(index, node, style): (usize, NodeId, S)| -> (_, _, _, S) {
             let origin_zero_placement = InBothAbsAxis {
-                horizontal: style.grid_column.map(|placement| placement.into_origin_zero_placement(explicit_col_count)),
-                vertical: style.grid_row.map(|placement| placement.into_origin_zero_placement(explicit_row_count)),
+                horizontal: style
+                    .grid_column()
+                    .map(|placement| placement.into_origin_zero_placement(explicit_col_count)),
+                vertical: style.grid_row().map(|placement| placement.into_origin_zero_placement(explicit_row_count)),
             };
             (index, node, origin_zero_placement, style)
         }
@@ -40,7 +44,7 @@ pub(super) fn place_grid_items<'a, ChildIter>(
     // 1. Place children with definite positions
     let mut idx = 0;
     children_iter()
-        .filter(|(_, _, child_style)| child_style.grid_row.is_definite() && child_style.grid_column.is_definite())
+        .filter(|(_, _, child_style)| child_style.grid_row().is_definite() && child_style.grid_column().is_definite())
         .map(map_child_style_to_origin_zero_placement)
         .for_each(|(index, child_node, child_placement, style)| {
             idx += 1;
@@ -223,7 +227,6 @@ fn place_indefinitely_positioned_item(
     let primary_placement_style = placement.get(primary_axis);
     let secondary_placement_style = placement.get(primary_axis.other_axis());
 
-    let primary_span = primary_placement_style.indefinite_span();
     let secondary_span = secondary_placement_style.indefinite_span();
     let has_definite_primary_axis_position = primary_placement_style.is_definite();
     let primary_axis_grid_start_line = cell_occupancy_matrix.track_counts(primary_axis).implicit_start_line();
@@ -252,7 +255,7 @@ fn place_indefinitely_positioned_item(
         // Item has fixed primary axis position: so we simply increment the secondary axis position
         // until we find a space that the item fits in
         loop {
-            let primary_span = Line { start: primary_idx, end: primary_idx + primary_span };
+            let primary_span = Line { start: primary_idx, end: primary_idx + definite_primary_placement.span() };
             let secondary_span = Line { start: secondary_idx, end: secondary_idx + secondary_span };
 
             // If area is occupied, increment the index and try again
@@ -265,6 +268,8 @@ fn place_indefinitely_positioned_item(
             return (primary_span, secondary_span);
         }
     } else {
+        let primary_span = primary_placement_style.indefinite_span();
+
         // Item does not have any fixed axis, so we search along the primary axis until we hit the end of the already
         // existent tracks, and then we reset the primary axis back to zero and increment the secondary axis index.
         // We continue in this vein until we find a space that the item fits in.
@@ -296,12 +301,12 @@ fn place_indefinitely_positioned_item(
 /// Record the grid item in both CellOccupancyMatric and the GridItems list
 /// once a definite placement has been determined
 #[allow(clippy::too_many_arguments)]
-fn record_grid_placement(
+fn record_grid_placement<S: GridItemStyle>(
     cell_occupancy_matrix: &mut CellOccupancyMatrix,
     items: &mut Vec<GridItem>,
     node: NodeId,
     index: usize,
-    style: &Style,
+    style: S,
     parent_align_items: AlignItems,
     parent_justify_items: AlignItems,
     primary_axis: AbsoluteAxis,
@@ -340,11 +345,8 @@ fn record_grid_placement(
     println!("\n");
 }
 
-#[allow(clippy::bool_assert_comparison)]
 #[cfg(test)]
 mod tests {
-    // It's more readable if the test code is uniform, so we tolerate unnecessary clones in tests
-    #![allow(clippy::redundant_clone)]
 
     mod test_placement_algorithm {
         use crate::compute::grid::implicit_grid::compute_grid_size_estimate;

@@ -3,7 +3,7 @@
 pub use crate::{
     geometry::{Line, Rect, Size},
     style::{
-        AlignContent, AlignItems, AlignSelf, AvailableSpace, Dimension, Display, JustifyContent, JustifyItems,
+        AlignContent, AlignItems, AlignSelf, AvailableSpace, BoxSizing, Dimension, Display, JustifyContent, JustifyItems,
         JustifySelf, LengthPercentage, LengthPercentageAuto, Overflow, Position, Style,
     },
     style_helpers::{

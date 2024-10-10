@@ -2,24 +2,28 @@
 mod alignment;
 mod dimension;
 
+#[cfg(feature = "block_layout")]
+mod block;
 #[cfg(feature = "flexbox")]
 mod flex;
+#[cfg(feature = "grid")]
+mod grid;
 
 pub use self::alignment::{AlignContent, AlignItems, AlignSelf, JustifyContent, JustifyItems, JustifySelf};
 pub use self::dimension::{AvailableSpace, Dimension, LengthPercentage, LengthPercentageAuto};
 
+#[cfg(feature = "block_layout")]
+pub use self::block::{BlockContainerStyle, BlockItemStyle, TextAlign};
 #[cfg(feature = "flexbox")]
-pub use self::flex::{FlexDirection, FlexWrap};
-
-#[cfg(feature = "grid")]
-mod grid;
+pub use self::flex::{FlexDirection, FlexWrap, FlexboxContainerStyle, FlexboxItemStyle};
 #[cfg(feature = "grid")]
 pub(crate) use self::grid::{GenericGridPlacement, OriginZeroGridPlacement};
 #[cfg(feature = "grid")]
 pub use self::grid::{
-    GridAutoFlow, GridPlacement, GridTrackRepetition, MaxTrackSizingFunction, MinTrackSizingFunction,
-    NonRepeatedTrackSizingFunction, TrackSizingFunction,
+    GridAutoFlow, GridContainerStyle, GridItemStyle, GridPlacement, GridTrackRepetition, MaxTrackSizingFunction,
+    MinTrackSizingFunction, NonRepeatedTrackSizingFunction, TrackSizingFunction,
 };
+
 use crate::geometry::{Point, Rect, Size};
 
 #[cfg(feature = "grid")]
@@ -28,6 +32,93 @@ use crate::geometry::Line;
 use crate::style_helpers;
 #[cfg(feature = "grid")]
 use crate::util::sys::GridTrackVec;
+
+/// The core set of styles that are shared between all CSS layout nodes
+///
+/// Note that all methods come with a default implementation which simply returns the default value for that style property
+/// but this is a just a convenience to save on boilerplate for styles that your implementation doesn't support. You will need
+/// to override the default implementation for each style property that your style type actually supports.
+pub trait CoreStyle {
+    /// Which box generation mode should be used
+    #[inline(always)]
+    fn box_generation_mode(&self) -> BoxGenerationMode {
+        BoxGenerationMode::DEFAULT
+    }
+    /// Is block layout?
+    #[inline(always)]
+    fn is_block(&self) -> bool {
+        false
+    }
+    /// Which box do size styles apply to
+    #[inline(always)]
+    fn box_sizing(&self) -> BoxSizing {
+        BoxSizing::BorderBox
+    }
+
+    // Overflow properties
+    /// How children overflowing their container should affect layout
+    #[inline(always)]
+    fn overflow(&self) -> Point<Overflow> {
+        Style::DEFAULT.overflow
+    }
+    /// How much space (in points) should be reserved for the scrollbars of `Overflow::Scroll` and `Overflow::Auto` nodes.
+    #[inline(always)]
+    fn scrollbar_width(&self) -> f32 {
+        0.0
+    }
+
+    // Position properties
+    /// What should the `position` value of this struct use as a base offset?
+    #[inline(always)]
+    fn position(&self) -> Position {
+        Style::DEFAULT.position
+    }
+    /// How should the position of this element be tweaked relative to the layout defined?
+    #[inline(always)]
+    fn inset(&self) -> Rect<LengthPercentageAuto> {
+        Style::DEFAULT.inset
+    }
+
+    // Size properies
+    /// Sets the initial size of the item
+    #[inline(always)]
+    fn size(&self) -> Size<Dimension> {
+        Style::DEFAULT.size
+    }
+    /// Controls the minimum size of the item
+    #[inline(always)]
+    fn min_size(&self) -> Size<Dimension> {
+        Style::DEFAULT.min_size
+    }
+    /// Controls the maximum size of the item
+    #[inline(always)]
+    fn max_size(&self) -> Size<Dimension> {
+        Style::DEFAULT.max_size
+    }
+    /// Sets the preferred aspect ratio for the item
+    /// The ratio is calculated as width divided by height.
+    #[inline(always)]
+    fn aspect_ratio(&self) -> Option<f32> {
+        Style::DEFAULT.aspect_ratio
+    }
+
+    // Spacing Properties
+    /// How large should the margin be on each side?
+    #[inline(always)]
+    fn margin(&self) -> Rect<LengthPercentageAuto> {
+        Style::DEFAULT.margin
+    }
+    /// How large should the padding be on each side?
+    #[inline(always)]
+    fn padding(&self) -> Rect<LengthPercentage> {
+        Style::DEFAULT.padding
+    }
+    /// How large should the border be on each side?
+    #[inline(always)]
+    fn border(&self) -> Rect<LengthPercentage> {
+        Style::DEFAULT.border
+    }
+}
 
 /// Sets the layout used for the children of this node
 ///
@@ -44,26 +135,32 @@ pub enum Display {
     /// The children will follow the CSS Grid layout algorithm
     #[cfg(feature = "grid")]
     Grid,
-    /// The children will not be laid out, and will follow absolute positioning
+    /// The node is hidden, and it's children will also be hidden
     None,
 }
 
 impl Display {
-    /// The default of Display.
+    /// The default Display mode
     #[cfg(feature = "flexbox")]
     pub const DEFAULT: Display = Display::Flex;
 
-    /// The default of Display.
+    /// The default Display mode
     #[cfg(all(feature = "grid", not(feature = "flexbox")))]
     pub const DEFAULT: Display = Display::Grid;
 
-    /// The default of Display.
+    /// The default Display mode
     #[cfg(all(feature = "block_layout", not(feature = "flexbox"), not(feature = "grid")))]
     pub const DEFAULT: Display = Display::Block;
 
-    /// The default of Display.
+    /// The default Display mode
     #[cfg(all(not(feature = "flexbox"), not(feature = "grid"), not(feature = "block_layout")))]
     pub const DEFAULT: Display = Display::None;
+}
+
+impl Default for Display {
+    fn default() -> Self {
+        Self::DEFAULT
+    }
 }
 
 impl core::fmt::Display for Display {
@@ -80,7 +177,23 @@ impl core::fmt::Display for Display {
     }
 }
 
-impl Default for Display {
+/// An abstracted version of the CSS `display` property where any value other than "none" is represented by "normal"
+/// See: <https://www.w3.org/TR/css-display-3/#box-generation>
+#[derive(Copy, Clone, PartialEq, Eq, Debug)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
+pub enum BoxGenerationMode {
+    /// The node generates a box in the regular way
+    Normal,
+    /// The node and it's descendants generate no boxes (they are hidden)
+    None,
+}
+
+impl BoxGenerationMode {
+    /// The default of BoxGenerationMode
+    pub const DEFAULT: BoxGenerationMode = BoxGenerationMode::Normal;
+}
+
+impl Default for BoxGenerationMode {
     fn default() -> Self {
         Self::DEFAULT
     }
@@ -112,6 +225,34 @@ pub enum Position {
 impl Default for Position {
     fn default() -> Self {
         Self::Relative
+    }
+}
+
+/// Specifies whether size styles for this node are assigned to the node's "content box" or "border box"
+///
+/// - The "content box" is the node's inner size excluding padding, border and margin
+/// - The "border box" is the node's outer size including padding and border (but still excluding margin)
+///
+/// This property modifies the application of the following styles:
+///
+///   - `size`
+///   - `min_size`
+///   - `max_size`
+///   - `flex_basis`
+///
+/// See h<ttps://developer.mozilla.org/en-US/docs/Web/CSS/box-sizing>
+#[derive(Copy, Clone, PartialEq, Eq, Debug)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
+pub enum BoxSizing {
+    /// Size styles such size, min_size, max_size specify the box's "content box" (the size excluding padding/border/margin)
+    BorderBox,
+    /// Size styles such size, min_size, max_size specify the box's "border box" (the size excluding margin but including padding/border)
+    ContentBox,
+}
+
+impl Default for BoxSizing {
+    fn default() -> Self {
+        Self::BorderBox
     }
 }
 
@@ -189,6 +330,11 @@ impl Overflow {
 pub struct Style {
     /// What layout strategy should be used?
     pub display: Display,
+    /// Whether a child is display:table or not. This affects children of block layouts.
+    /// This should really be part of `Display`, but it is currently seperate because table layout isn't implemented
+    pub item_is_table: bool,
+    /// Should size styles apply to the content box or the border box of the node
+    pub box_sizing: BoxSizing,
 
     // Overflow properties
     /// How children overflowing their container should affect layout
@@ -255,13 +401,20 @@ pub struct Style {
     #[cfg_attr(feature = "serde", serde(default = "style_helpers::zero"))]
     pub gap: Size<LengthPercentage>,
 
-    // Flexbox properties
+    // Block container properties
+    /// How items elements should aligned in the inline axis
+    #[cfg(feature = "block_layout")]
+    pub text_align: TextAlign,
+
+    // Flexbox container properties
     /// Which direction does the main axis flow in?
     #[cfg(feature = "flexbox")]
     pub flex_direction: FlexDirection,
     /// Should elements wrap, or stay in a single line?
     #[cfg(feature = "flexbox")]
     pub flex_wrap: FlexWrap,
+
+    // Flexbox item properties
     /// Sets the initial main axis size of the item
     #[cfg(feature = "flexbox")]
     pub flex_basis: Dimension,
@@ -276,11 +429,11 @@ pub struct Style {
     #[cfg(feature = "flexbox")]
     pub flex_shrink: f32,
 
-    // Grid container properties
-    /// Defines the track sizing functions (widths) of the grid rows
+    // Grid container properies
+    /// Defines the track sizing functions (heights) of the grid rows
     #[cfg(feature = "grid")]
     pub grid_template_rows: GridTrackVec<TrackSizingFunction>,
-    /// Defines the track sizing functions (heights) of the grid columns
+    /// Defines the track sizing functions (widths) of the grid columns
     #[cfg(feature = "grid")]
     pub grid_template_columns: GridTrackVec<TrackSizingFunction>,
     /// Defines the size of implicitly created rows
@@ -306,6 +459,8 @@ impl Style {
     /// The [`Default`] layout, in a form that can be used in const functions
     pub const DEFAULT: Style = Style {
         display: Display::DEFAULT,
+        item_is_table: false,
+        box_sizing: BoxSizing::BorderBox,
         overflow: Point { x: Overflow::Visible, y: Overflow::Visible },
         scrollbar_width: 0.0,
         position: Position::Relative,
@@ -332,6 +487,9 @@ impl Style {
         align_content: None,
         #[cfg(any(feature = "flexbox", feature = "grid"))]
         justify_content: None,
+        // Block
+        #[cfg(feature = "block_layout")]
+        text_align: TextAlign::Auto,
         // Flexbox
         #[cfg(feature = "flexbox")]
         flex_direction: FlexDirection::Row,
@@ -367,6 +525,390 @@ impl Default for Style {
     }
 }
 
+impl CoreStyle for Style {
+    #[inline(always)]
+    fn box_generation_mode(&self) -> BoxGenerationMode {
+        match self.display {
+            Display::None => BoxGenerationMode::None,
+            _ => BoxGenerationMode::Normal,
+        }
+    }
+    #[inline(always)]
+    #[cfg(feature = "block_layout")]
+    fn is_block(&self) -> bool {
+        matches!(self.display, Display::Block)
+    }
+    #[inline(always)]
+    fn box_sizing(&self) -> BoxSizing {
+        self.box_sizing
+    }
+    #[inline(always)]
+    fn overflow(&self) -> Point<Overflow> {
+        self.overflow
+    }
+    #[inline(always)]
+    fn scrollbar_width(&self) -> f32 {
+        self.scrollbar_width
+    }
+    #[inline(always)]
+    fn position(&self) -> Position {
+        self.position
+    }
+    #[inline(always)]
+    fn inset(&self) -> Rect<LengthPercentageAuto> {
+        self.inset
+    }
+    #[inline(always)]
+    fn size(&self) -> Size<Dimension> {
+        self.size
+    }
+    #[inline(always)]
+    fn min_size(&self) -> Size<Dimension> {
+        self.min_size
+    }
+    #[inline(always)]
+    fn max_size(&self) -> Size<Dimension> {
+        self.max_size
+    }
+    #[inline(always)]
+    fn aspect_ratio(&self) -> Option<f32> {
+        self.aspect_ratio
+    }
+    #[inline(always)]
+    fn margin(&self) -> Rect<LengthPercentageAuto> {
+        self.margin
+    }
+    #[inline(always)]
+    fn padding(&self) -> Rect<LengthPercentage> {
+        self.padding
+    }
+    #[inline(always)]
+    fn border(&self) -> Rect<LengthPercentage> {
+        self.border
+    }
+}
+
+impl<T: CoreStyle> CoreStyle for &'_ T {
+    #[inline(always)]
+    fn box_generation_mode(&self) -> BoxGenerationMode {
+        (*self).box_generation_mode()
+    }
+    #[inline(always)]
+    fn is_block(&self) -> bool {
+        (*self).is_block()
+    }
+    #[inline(always)]
+    fn box_sizing(&self) -> BoxSizing {
+        (*self).box_sizing()
+    }
+    #[inline(always)]
+    fn overflow(&self) -> Point<Overflow> {
+        (*self).overflow()
+    }
+    #[inline(always)]
+    fn scrollbar_width(&self) -> f32 {
+        (*self).scrollbar_width()
+    }
+    #[inline(always)]
+    fn position(&self) -> Position {
+        (*self).position()
+    }
+    #[inline(always)]
+    fn inset(&self) -> Rect<LengthPercentageAuto> {
+        (*self).inset()
+    }
+    #[inline(always)]
+    fn size(&self) -> Size<Dimension> {
+        (*self).size()
+    }
+    #[inline(always)]
+    fn min_size(&self) -> Size<Dimension> {
+        (*self).min_size()
+    }
+    #[inline(always)]
+    fn max_size(&self) -> Size<Dimension> {
+        (*self).max_size()
+    }
+    #[inline(always)]
+    fn aspect_ratio(&self) -> Option<f32> {
+        (*self).aspect_ratio()
+    }
+    #[inline(always)]
+    fn margin(&self) -> Rect<LengthPercentageAuto> {
+        (*self).margin()
+    }
+    #[inline(always)]
+    fn padding(&self) -> Rect<LengthPercentage> {
+        (*self).padding()
+    }
+    #[inline(always)]
+    fn border(&self) -> Rect<LengthPercentage> {
+        (*self).border()
+    }
+}
+
+#[cfg(feature = "block_layout")]
+impl BlockContainerStyle for &Style {
+    #[inline(always)]
+    fn text_align(&self) -> TextAlign {
+        self.text_align
+    }
+}
+
+#[cfg(feature = "block_layout")]
+impl<T: BlockContainerStyle> BlockContainerStyle for &'_ T {
+    #[inline(always)]
+    fn text_align(&self) -> TextAlign {
+        (*self).text_align()
+    }
+}
+
+#[cfg(feature = "block_layout")]
+impl BlockItemStyle for Style {
+    #[inline(always)]
+    fn is_table(&self) -> bool {
+        self.item_is_table
+    }
+}
+
+#[cfg(feature = "block_layout")]
+impl<T: BlockItemStyle> BlockItemStyle for &'_ T {
+    #[inline(always)]
+    fn is_table(&self) -> bool {
+        (*self).is_table()
+    }
+}
+
+#[cfg(feature = "flexbox")]
+impl FlexboxContainerStyle for Style {
+    #[inline(always)]
+    fn flex_direction(&self) -> FlexDirection {
+        self.flex_direction
+    }
+    #[inline(always)]
+    fn flex_wrap(&self) -> FlexWrap {
+        self.flex_wrap
+    }
+    #[inline(always)]
+    fn gap(&self) -> Size<LengthPercentage> {
+        self.gap
+    }
+    #[inline(always)]
+    fn align_content(&self) -> Option<AlignContent> {
+        self.align_content
+    }
+    #[inline(always)]
+    fn align_items(&self) -> Option<AlignItems> {
+        self.align_items
+    }
+    #[inline(always)]
+    fn justify_content(&self) -> Option<JustifyContent> {
+        self.justify_content
+    }
+}
+
+#[cfg(feature = "flexbox")]
+impl<T: FlexboxContainerStyle> FlexboxContainerStyle for &'_ T {
+    #[inline(always)]
+    fn flex_direction(&self) -> FlexDirection {
+        (*self).flex_direction()
+    }
+    #[inline(always)]
+    fn flex_wrap(&self) -> FlexWrap {
+        (*self).flex_wrap()
+    }
+    #[inline(always)]
+    fn gap(&self) -> Size<LengthPercentage> {
+        (*self).gap()
+    }
+    #[inline(always)]
+    fn align_content(&self) -> Option<AlignContent> {
+        (*self).align_content()
+    }
+    #[inline(always)]
+    fn align_items(&self) -> Option<AlignItems> {
+        (*self).align_items()
+    }
+    #[inline(always)]
+    fn justify_content(&self) -> Option<JustifyContent> {
+        (*self).justify_content()
+    }
+}
+
+#[cfg(feature = "flexbox")]
+impl FlexboxItemStyle for Style {
+    #[inline(always)]
+    fn flex_basis(&self) -> Dimension {
+        self.flex_basis
+    }
+    #[inline(always)]
+    fn flex_grow(&self) -> f32 {
+        self.flex_grow
+    }
+    #[inline(always)]
+    fn flex_shrink(&self) -> f32 {
+        self.flex_shrink
+    }
+    #[inline(always)]
+    fn align_self(&self) -> Option<AlignSelf> {
+        self.align_self
+    }
+}
+
+#[cfg(feature = "flexbox")]
+impl<T: FlexboxItemStyle> FlexboxItemStyle for &'_ T {
+    #[inline(always)]
+    fn flex_basis(&self) -> Dimension {
+        (*self).flex_basis()
+    }
+    #[inline(always)]
+    fn flex_grow(&self) -> f32 {
+        (*self).flex_grow()
+    }
+    #[inline(always)]
+    fn flex_shrink(&self) -> f32 {
+        (*self).flex_shrink()
+    }
+    #[inline(always)]
+    fn align_self(&self) -> Option<AlignSelf> {
+        (*self).align_self()
+    }
+}
+
+#[cfg(feature = "grid")]
+impl GridContainerStyle for Style {
+    type TemplateTrackList<'a> = &'a [TrackSizingFunction] where Self: 'a;
+    type AutoTrackList<'a> = &'a [NonRepeatedTrackSizingFunction] where Self: 'a;
+
+    #[inline(always)]
+    fn grid_template_rows(&self) -> &[TrackSizingFunction] {
+        &self.grid_template_rows
+    }
+    #[inline(always)]
+    fn grid_template_columns(&self) -> &[TrackSizingFunction] {
+        &self.grid_template_columns
+    }
+    #[inline(always)]
+    fn grid_auto_rows(&self) -> &[NonRepeatedTrackSizingFunction] {
+        &self.grid_auto_rows
+    }
+    #[inline(always)]
+    fn grid_auto_columns(&self) -> &[NonRepeatedTrackSizingFunction] {
+        &self.grid_auto_columns
+    }
+    #[inline(always)]
+    fn grid_auto_flow(&self) -> GridAutoFlow {
+        self.grid_auto_flow
+    }
+    #[inline(always)]
+    fn gap(&self) -> Size<LengthPercentage> {
+        self.gap
+    }
+    #[inline(always)]
+    fn align_content(&self) -> Option<AlignContent> {
+        self.align_content
+    }
+    #[inline(always)]
+    fn justify_content(&self) -> Option<JustifyContent> {
+        self.justify_content
+    }
+    #[inline(always)]
+    fn align_items(&self) -> Option<AlignItems> {
+        self.align_items
+    }
+    #[inline(always)]
+    fn justify_items(&self) -> Option<AlignItems> {
+        self.justify_items
+    }
+}
+
+#[cfg(feature = "grid")]
+impl<T: GridContainerStyle> GridContainerStyle for &'_ T {
+    type TemplateTrackList<'a> = T::TemplateTrackList<'a> where Self: 'a;
+    type AutoTrackList<'a> = T::AutoTrackList<'a> where Self: 'a;
+
+    #[inline(always)]
+    fn grid_template_rows(&self) -> Self::TemplateTrackList<'_> {
+        (*self).grid_template_rows()
+    }
+    #[inline(always)]
+    fn grid_template_columns(&self) -> Self::TemplateTrackList<'_> {
+        (*self).grid_template_columns()
+    }
+    #[inline(always)]
+    fn grid_auto_rows(&self) -> Self::AutoTrackList<'_> {
+        (*self).grid_auto_rows()
+    }
+    #[inline(always)]
+    fn grid_auto_columns(&self) -> Self::AutoTrackList<'_> {
+        (*self).grid_auto_columns()
+    }
+    #[inline(always)]
+    fn grid_auto_flow(&self) -> GridAutoFlow {
+        (*self).grid_auto_flow()
+    }
+    #[inline(always)]
+    fn gap(&self) -> Size<LengthPercentage> {
+        (*self).gap()
+    }
+    #[inline(always)]
+    fn align_content(&self) -> Option<AlignContent> {
+        (*self).align_content()
+    }
+    #[inline(always)]
+    fn justify_content(&self) -> Option<JustifyContent> {
+        (*self).justify_content()
+    }
+    #[inline(always)]
+    fn align_items(&self) -> Option<AlignItems> {
+        (*self).align_items()
+    }
+    #[inline(always)]
+    fn justify_items(&self) -> Option<AlignItems> {
+        (*self).justify_items()
+    }
+}
+
+#[cfg(feature = "grid")]
+impl GridItemStyle for &'_ Style {
+    #[inline(always)]
+    fn grid_row(&self) -> Line<GridPlacement> {
+        self.grid_row
+    }
+    #[inline(always)]
+    fn grid_column(&self) -> Line<GridPlacement> {
+        self.grid_column
+    }
+    #[inline(always)]
+    fn align_self(&self) -> Option<AlignSelf> {
+        self.align_self
+    }
+    #[inline(always)]
+    fn justify_self(&self) -> Option<AlignSelf> {
+        self.justify_self
+    }
+}
+
+#[cfg(feature = "grid")]
+impl<T: GridItemStyle> GridItemStyle for &'_ T {
+    #[inline(always)]
+    fn grid_row(&self) -> Line<GridPlacement> {
+        (*self).grid_row()
+    }
+    #[inline(always)]
+    fn grid_column(&self) -> Line<GridPlacement> {
+        (*self).grid_column()
+    }
+    #[inline(always)]
+    fn align_self(&self) -> Option<AlignSelf> {
+        (*self).align_self()
+    }
+    #[inline(always)]
+    fn justify_self(&self) -> Option<AlignSelf> {
+        (*self).justify_self()
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::Style;
@@ -379,6 +921,8 @@ mod tests {
 
         let old_defaults = Style {
             display: Default::default(),
+            item_is_table: false,
+            box_sizing: Default::default(),
             overflow: Default::default(),
             scrollbar_width: 0.0,
             position: Default::default(),
@@ -403,6 +947,8 @@ mod tests {
             padding: Rect::zero(),
             border: Rect::zero(),
             gap: Size::zero(),
+            #[cfg(feature = "block_layout")]
+            text_align: Default::default(),
             #[cfg(feature = "flexbox")]
             flex_grow: 0.0,
             #[cfg(feature = "flexbox")]
@@ -470,6 +1016,7 @@ mod tests {
 
         // Display and Position
         assert_type_size_and_align::<Display>(1, 1);
+        assert_type_size_and_align::<BoxSizing>(1, 1);
         assert_type_size_and_align::<Position>(1, 1);
         assert_type_size_and_align::<Overflow>(1, 1);
 

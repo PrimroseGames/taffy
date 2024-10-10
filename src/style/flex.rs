@@ -1,4 +1,70 @@
 //! Style types for Flexbox layout
+use super::{AlignContent, AlignItems, AlignSelf, CoreStyle, Dimension, JustifyContent, LengthPercentage, Style};
+use crate::geometry::Size;
+
+/// The set of styles required for a Flexbox container
+pub trait FlexboxContainerStyle: CoreStyle {
+    /// Which direction does the main axis flow in?
+    #[inline(always)]
+    fn flex_direction(&self) -> FlexDirection {
+        Style::DEFAULT.flex_direction
+    }
+    /// Should elements wrap, or stay in a single line?
+    #[inline(always)]
+    fn flex_wrap(&self) -> FlexWrap {
+        Style::DEFAULT.flex_wrap
+    }
+
+    /// How large should the gaps between items in a grid or flex container be?
+    #[inline(always)]
+    fn gap(&self) -> Size<LengthPercentage> {
+        Style::DEFAULT.gap
+    }
+
+    // Alignment properties
+
+    /// How should content contained within this item be aligned in the cross/block axis
+    #[inline(always)]
+    fn align_content(&self) -> Option<AlignContent> {
+        Style::DEFAULT.align_content
+    }
+    /// How this node's children aligned in the cross/block axis?
+    #[inline(always)]
+    fn align_items(&self) -> Option<AlignItems> {
+        Style::DEFAULT.align_items
+    }
+    /// How this node's children should be aligned in the inline axis
+    #[inline(always)]
+    fn justify_content(&self) -> Option<JustifyContent> {
+        Style::DEFAULT.justify_content
+    }
+}
+
+/// The set of styles required for a Flexbox item (child of a Flexbox container)
+pub trait FlexboxItemStyle: CoreStyle {
+    /// Sets the initial main axis size of the item
+    #[inline(always)]
+    fn flex_basis(&self) -> Dimension {
+        Style::DEFAULT.flex_basis
+    }
+    /// The relative rate at which this item grows when it is expanding to fill space
+    #[inline(always)]
+    fn flex_grow(&self) -> f32 {
+        Style::DEFAULT.flex_grow
+    }
+    /// The relative rate at which this item shrinks when it is contracting to fit into space
+    #[inline(always)]
+    fn flex_shrink(&self) -> f32 {
+        Style::DEFAULT.flex_shrink
+    }
+
+    /// How this node should be aligned in the cross/block axis
+    /// Falls back to the parents [`AlignItems`] if not set
+    #[inline(always)]
+    fn align_self(&self) -> Option<AlignSelf> {
+        Style::DEFAULT.align_self
+    }
+}
 
 use crate::geometry::AbsoluteAxis;
 
@@ -107,26 +173,26 @@ mod tests {
 
         #[test]
         fn flex_direction_is_row() {
-            assert_eq!(FlexDirection::Row.is_row(), true);
-            assert_eq!(FlexDirection::RowReverse.is_row(), true);
-            assert_eq!(FlexDirection::Column.is_row(), false);
-            assert_eq!(FlexDirection::ColumnReverse.is_row(), false);
+            assert!(FlexDirection::Row.is_row());
+            assert!(FlexDirection::RowReverse.is_row());
+            assert!(!FlexDirection::Column.is_row());
+            assert!(!FlexDirection::ColumnReverse.is_row());
         }
 
         #[test]
         fn flex_direction_is_column() {
-            assert_eq!(FlexDirection::Row.is_column(), false);
-            assert_eq!(FlexDirection::RowReverse.is_column(), false);
-            assert_eq!(FlexDirection::Column.is_column(), true);
-            assert_eq!(FlexDirection::ColumnReverse.is_column(), true);
+            assert!(!FlexDirection::Row.is_column());
+            assert!(!FlexDirection::RowReverse.is_column());
+            assert!(FlexDirection::Column.is_column());
+            assert!(FlexDirection::ColumnReverse.is_column());
         }
 
         #[test]
         fn flex_direction_is_reverse() {
-            assert_eq!(FlexDirection::Row.is_reverse(), false);
-            assert_eq!(FlexDirection::RowReverse.is_reverse(), true);
-            assert_eq!(FlexDirection::Column.is_reverse(), false);
-            assert_eq!(FlexDirection::ColumnReverse.is_reverse(), true);
+            assert!(!FlexDirection::Row.is_reverse());
+            assert!(FlexDirection::RowReverse.is_reverse());
+            assert!(!FlexDirection::Column.is_reverse());
+            assert!(FlexDirection::ColumnReverse.is_reverse());
         }
     }
 }

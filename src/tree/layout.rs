@@ -6,6 +6,7 @@ use crate::util::sys::{f32_max, f32_min};
 
 /// Whether we are performing a full layout, or we merely need to size the node
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
+#[cfg_attr(feature = "serde", derive(Serialize))]
 pub enum RunMode {
     /// A full layout for this node and all children should be computed
     PerformLayout,
@@ -18,6 +19,7 @@ pub enum RunMode {
 
 /// Whether styles should be taken into account when computing size
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
+#[cfg_attr(feature = "serde", derive(Serialize))]
 pub enum SizingMode {
     /// Only content contributions should be taken into account
     ContentSize,
@@ -27,6 +29,7 @@ pub enum SizingMode {
 
 /// A set of margins that are available for collapsing with for block layout's margin collapsing
 #[derive(Copy, Clone, Debug, PartialEq)]
+#[cfg_attr(feature = "serde", derive(Serialize))]
 pub struct CollapsibleMarginSet {
     /// The largest positive margin
     positive: f32,
@@ -72,7 +75,8 @@ impl CollapsibleMarginSet {
 }
 
 /// An axis that layout algorithms can be requested to compute a size for
-#[derive(Debug, Copy, Clone)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+#[cfg_attr(feature = "serde", derive(Serialize))]
 pub enum RequestedAxis {
     /// The horizontal axis
     Horizontal,
@@ -102,7 +106,8 @@ impl TryFrom<RequestedAxis> for AbsoluteAxis {
 }
 
 /// A struct containing the inputs constraints/hints for laying out a node, which are passed in by the parent
-#[derive(Debug, Copy, Clone)]
+#[derive(Debug, Copy, Clone, PartialEq)]
+#[cfg_attr(feature = "serde", derive(Serialize))]
 pub struct LayoutInput {
     /// Whether we only need to know the Node's size, or whe
     pub run_mode: RunMode,
@@ -151,7 +156,8 @@ impl LayoutInput {
 /// children that may be text nodes. See <https://www.w3.org/TR/css-writing-modes-3/#intro-baselines> for details.
 /// If your node does not have a baseline (or you are unsure how to compute it), then simply return `Point::NONE`
 /// for the first_baselines field
-#[derive(Debug, Copy, Clone)]
+#[derive(Debug, Copy, Clone, PartialEq)]
+#[cfg_attr(feature = "serde", derive(Serialize))]
 pub struct LayoutOutput {
     /// The size of the node
     pub size: Size<f32>,
@@ -183,6 +189,9 @@ impl LayoutOutput {
         margins_can_collapse_through: false,
     };
 
+    /// A blank layout output
+    pub const DEFAULT: Self = Self::HIDDEN;
+
     /// Constructor to create a `LayoutOutput` from just the size and baselines
     pub fn from_sizes_and_baselines(
         size: Size<f32>,
@@ -212,7 +221,8 @@ impl LayoutOutput {
 }
 
 /// The final result of a layout algorithm for a single node.
-#[derive(Debug, Copy, Clone)]
+#[derive(Debug, Copy, Clone, PartialEq)]
+#[cfg_attr(feature = "serde", derive(Serialize))]
 pub struct Layout {
     /// The relative ordering of the node
     ///
@@ -233,6 +243,14 @@ pub struct Layout {
     pub border: Rect<f32>,
     /// The size of the padding of the node
     pub padding: Rect<f32>,
+    /// The size of the margin of the node
+    pub margin: Rect<f32>,
+}
+
+impl Default for Layout {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl Layout {
@@ -252,6 +270,7 @@ impl Layout {
             scrollbar_size: Size::zero(),
             border: Rect::zero(),
             padding: Rect::zero(),
+            margin: Rect::zero(),
         }
     }
 
@@ -270,6 +289,7 @@ impl Layout {
             scrollbar_size: Size::zero(),
             border: Rect::zero(),
             padding: Rect::zero(),
+            margin: Rect::zero(),
         }
     }
 }

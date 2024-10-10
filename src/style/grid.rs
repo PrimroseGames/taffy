@@ -1,12 +1,125 @@
 //! Style types for CSS Grid layout
-use super::{AlignContent, LengthPercentage, Style};
+use super::{AlignContent, AlignItems, AlignSelf, CoreStyle, JustifyContent, LengthPercentage, Style};
 use crate::compute::grid::{GridCoordinate, GridLine, OriginZeroLine};
-use crate::geometry::{AbsoluteAxis, AbstractAxis};
-use crate::geometry::{Line, MinMax};
+use crate::geometry::{AbsoluteAxis, AbstractAxis, Line, MinMax, Size};
 use crate::style_helpers::*;
 use crate::util::sys::GridTrackVec;
+use core::borrow::Borrow;
 use core::cmp::{max, min};
 use core::convert::Infallible;
+
+/// The set of styles required for a CSS Grid container
+pub trait GridContainerStyle: CoreStyle {
+    /// The type returned by grid_template_rows and grid_template_columns
+    type TemplateTrackList<'a>: Borrow<[TrackSizingFunction]>
+    where
+        Self: 'a;
+    /// The type returned by grid_auto_rows and grid_auto_columns
+    type AutoTrackList<'a>: Borrow<[NonRepeatedTrackSizingFunction]>
+    where
+        Self: 'a;
+
+    // FIXME: re-add default implemenations for grid_{template,auto}_{rows,columns} once the
+    // associated_type_defaults feature (https://github.com/rust-lang/rust/issues/29661) is stabilised.
+
+    /// Defines the track sizing functions (heights) of the grid rows
+    fn grid_template_rows(&self) -> Self::TemplateTrackList<'_>;
+    /// Defines the track sizing functions (widths) of the grid columns
+    fn grid_template_columns(&self) -> Self::TemplateTrackList<'_>;
+    /// Defines the size of implicitly created rows
+    fn grid_auto_rows(&self) -> Self::AutoTrackList<'_>;
+    /// Defined the size of implicitly created columns
+    fn grid_auto_columns(&self) -> Self::AutoTrackList<'_>;
+
+    /// Controls how items get placed into the grid for auto-placed items
+    #[inline(always)]
+    fn grid_auto_flow(&self) -> GridAutoFlow {
+        Style::DEFAULT.grid_auto_flow
+    }
+
+    /// How large should the gaps between items in a grid or flex container be?
+    #[inline(always)]
+    fn gap(&self) -> Size<LengthPercentage> {
+        Style::DEFAULT.gap
+    }
+
+    // Alignment properties
+
+    /// How should content contained within this item be aligned in the cross/block axis
+    #[inline(always)]
+    fn align_content(&self) -> Option<AlignContent> {
+        Style::DEFAULT.align_content
+    }
+    /// How should contained within this item be aligned in the main/inline axis
+    #[inline(always)]
+    fn justify_content(&self) -> Option<JustifyContent> {
+        Style::DEFAULT.justify_content
+    }
+    /// How this node's children aligned in the cross/block axis?
+    #[inline(always)]
+    fn align_items(&self) -> Option<AlignItems> {
+        Style::DEFAULT.align_items
+    }
+    /// How this node's children should be aligned in the inline axis
+    #[inline(always)]
+    fn justify_items(&self) -> Option<AlignItems> {
+        Style::DEFAULT.justify_items
+    }
+
+    /// Get a grid item's row or column placement depending on the axis passed
+    #[inline(always)]
+    fn grid_template_tracks(&self, axis: AbsoluteAxis) -> Self::TemplateTrackList<'_> {
+        match axis {
+            AbsoluteAxis::Horizontal => self.grid_template_columns(),
+            AbsoluteAxis::Vertical => self.grid_template_rows(),
+        }
+    }
+
+    /// Get a grid container's align-content or justify-content alignment depending on the axis passed
+    #[inline(always)]
+    fn grid_align_content(&self, axis: AbstractAxis) -> AlignContent {
+        match axis {
+            AbstractAxis::Inline => self.justify_content().unwrap_or(AlignContent::Stretch),
+            AbstractAxis::Block => self.align_content().unwrap_or(AlignContent::Stretch),
+        }
+    }
+}
+
+/// The set of styles required for a CSS Grid item (child of a CSS Grid container)
+pub trait GridItemStyle: CoreStyle {
+    /// Defines which row in the grid the item should start and end at
+    #[inline(always)]
+    fn grid_row(&self) -> Line<GridPlacement> {
+        Style::DEFAULT.grid_row
+    }
+    /// Defines which column in the grid the item should start and end at
+    #[inline(always)]
+    fn grid_column(&self) -> Line<GridPlacement> {
+        Style::DEFAULT.grid_column
+    }
+
+    /// How this node should be aligned in the cross/block axis
+    /// Falls back to the parents [`AlignItems`] if not set
+    #[inline(always)]
+    fn align_self(&self) -> Option<AlignSelf> {
+        Style::DEFAULT.align_self
+    }
+    /// How this node should be aligned in the inline axis
+    /// Falls back to the parents [`super::JustifyItems`] if not set
+    #[inline(always)]
+    fn justify_self(&self) -> Option<AlignSelf> {
+        Style::DEFAULT.justify_self
+    }
+
+    /// Get a grid item's row or column placement depending on the axis passed
+    #[inline(always)]
+    fn grid_placement(&self, axis: AbsoluteAxis) -> Line<GridPlacement> {
+        match axis {
+            AbsoluteAxis::Horizontal => self.grid_column(),
+            AbsoluteAxis::Vertical => self.grid_row(),
+        }
+    }
+}
 
 /// Controls whether grid items are placed row-wise or column-wise. And whether the sparse or dense packing algorithm is used.
 ///
@@ -128,13 +241,6 @@ impl GridPlacement {
 }
 
 impl<T: GridCoordinate> Line<GenericGridPlacement<T>> {
-    #[inline]
-    /// Whether the track position is definite in this axis (or the item will need auto placement)
-    /// The track position is definite if least one of the start and end positions is a track index
-    pub fn is_definite(&self) -> bool {
-        matches!((self.start, self.end), (GenericGridPlacement::Line(_), _) | (_, GenericGridPlacement::Line(_)))
-    }
-
     /// Resolves the span for an indefinite placement (a placement that does not consist of two `Track`s).
     /// Panics if called on a definite placement
     pub fn indefinite_span(&self) -> u16 {
@@ -154,6 +260,18 @@ impl<T: GridCoordinate> Line<GenericGridPlacement<T>> {
 }
 
 impl Line<GridPlacement> {
+    #[inline]
+    /// Whether the track position is definite in this axis (or the item will need auto placement)
+    /// The track position is definite if least one of the start and end positions is a NON-ZERO track index
+    /// (0 is an invalid line in GridLine coordinates, and falls back to "auto" which is indefinite)
+    pub fn is_definite(&self) -> bool {
+        match (self.start, self.end) {
+            (GenericGridPlacement::Line(line), _) if line.as_i16() != 0 => true,
+            (_, GenericGridPlacement::Line(line)) if line.as_i16() != 0 => true,
+            _ => false,
+        }
+    }
+
     /// Apply a mapping function if the [`GridPlacement`] is a `Track`. Otherwise return `self` unmodified.
     pub fn into_origin_zero(&self, explicit_track_count: u16) -> Line<OriginZeroGridPlacement> {
         Line {
@@ -197,6 +315,13 @@ impl Line<GridPlacement> {
 }
 
 impl Line<OriginZeroGridPlacement> {
+    #[inline]
+    /// Whether the track position is definite in this axis (or the item will need auto placement)
+    /// The track position is definite if least one of the start and end positions is a track index
+    pub fn is_definite(&self) -> bool {
+        matches!((self.start, self.end), (GenericGridPlacement::Line(_), _) | (_, GenericGridPlacement::Line(_)))
+    }
+
     /// If at least one of the of the start and end positions is a track index then the other end can be resolved
     /// into a track index purely based on the information contained with the placement specification
     pub fn resolve_definite_grid_lines(&self) -> Line<OriginZeroLine> {
@@ -469,7 +594,8 @@ impl MinTrackSizingFunction {
     }
 }
 
-/// The sizing function for a grid track (row/column) (either auto-track or template track)
+/// The sizing function for a grid track (row/column)
+///
 /// May either be a MinMax variant which specifies separate values for the min-/max- track sizing functions
 /// or a scalar value which applies to both track sizing functions.
 pub type NonRepeatedTrackSizingFunction = MinMax<MinTrackSizingFunction, MaxTrackSizingFunction>;
@@ -619,32 +745,5 @@ impl FromFlex for TrackSizingFunction {
 impl From<MinMax<MinTrackSizingFunction, MaxTrackSizingFunction>> for TrackSizingFunction {
     fn from(input: MinMax<MinTrackSizingFunction, MaxTrackSizingFunction>) -> Self {
         Self::Single(input)
-    }
-}
-
-// Grid extensions to the Style struct
-impl Style {
-    /// Get a grid item's row or column placement depending on the axis passed
-    pub(crate) fn grid_template_tracks(&self, axis: AbsoluteAxis) -> &GridTrackVec<TrackSizingFunction> {
-        match axis {
-            AbsoluteAxis::Horizontal => &self.grid_template_columns,
-            AbsoluteAxis::Vertical => &self.grid_template_rows,
-        }
-    }
-
-    /// Get a grid item's row or column placement depending on the axis passed
-    pub(crate) fn grid_placement(&self, axis: AbsoluteAxis) -> Line<GridPlacement> {
-        match axis {
-            AbsoluteAxis::Horizontal => self.grid_column,
-            AbsoluteAxis::Vertical => self.grid_row,
-        }
-    }
-
-    /// Get a grid container's align-content or justify-content alignment depending on the axis passed
-    pub(crate) fn grid_align_content(&self, axis: AbstractAxis) -> AlignContent {
-        match axis {
-            AbstractAxis::Inline => self.justify_content.unwrap_or(AlignContent::Stretch),
-            AbstractAxis::Block => self.align_content.unwrap_or(AlignContent::Stretch),
-        }
     }
 }

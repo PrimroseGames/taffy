@@ -105,7 +105,7 @@ struct ChildIter(std::ops::Range<usize>);
 impl Iterator for ChildIter {
     type Item = NodeId;
     fn next(&mut self) -> Option<Self::Item> {
-        self.0.next().map(|idx| NodeId::from(idx))
+        self.0.next().map(NodeId::from)
     }
 }
 
@@ -126,7 +126,12 @@ impl taffy::TraversePartialTree for Node {
 }
 
 impl taffy::LayoutPartialTree for Node {
-    fn get_style(&self, node_id: NodeId) -> &Style {
+    type CoreContainerStyle<'a> = &'a Style where
+        Self: 'a;
+
+    type CacheMut<'b> = &'b mut Cache where Self: 'b;
+
+    fn get_core_container_style(&self, node_id: NodeId) -> Self::CoreContainerStyle<'_> {
         &self.node_from_id(node_id).style
     }
 
@@ -159,6 +164,38 @@ impl taffy::LayoutPartialTree for Node {
                 }),
             }
         })
+    }
+}
+
+impl taffy::LayoutFlexboxContainer for Node {
+    type FlexboxContainerStyle<'a> = &'a Style where
+        Self: 'a;
+
+    type FlexboxItemStyle<'a> = &'a Style where
+        Self: 'a;
+
+    fn get_flexbox_container_style(&self, node_id: NodeId) -> Self::FlexboxContainerStyle<'_> {
+        &self.node_from_id(node_id).style
+    }
+
+    fn get_flexbox_child_style(&self, child_node_id: NodeId) -> Self::FlexboxItemStyle<'_> {
+        &self.node_from_id(child_node_id).style
+    }
+}
+
+impl taffy::LayoutGridContainer for Node {
+    type GridContainerStyle<'a> = &'a Style where
+        Self: 'a;
+
+    type GridItemStyle<'a> = &'a Style where
+        Self: 'a;
+
+    fn get_grid_container_style(&self, node_id: NodeId) -> Self::GridContainerStyle<'_> {
+        &self.node_from_id(node_id).style
+    }
+
+    fn get_grid_child_style(&self, child_node_id: NodeId) -> Self::GridItemStyle<'_> {
+        &self.node_from_id(child_node_id).style
     }
 }
 

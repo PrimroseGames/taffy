@@ -108,7 +108,13 @@ async fn main() {
         .iter()
         .map(|(name, fixture_path, description)| {
             debug!("generating test contents for {}", &name);
-            (name.clone(), fixture_path, generate_test(name, description))
+
+            let border_box_test = generate_test(format!("{name}__border_box"), &description["borderBoxData"]);
+            let content_box_test = generate_test(format!("{name}__content_box"), &description["contentBoxData"]);
+
+            let test_file_content = [border_box_test, content_box_test].map(|test| test.to_string()).join("\n\n");
+
+            (name.clone(), fixture_path, test_file_content)
         })
         .collect();
 
@@ -145,7 +151,7 @@ async fn main() {
         let mut test_filename = test_path.join(&name);
         test_filename.set_extension("rs");
         debug!("writing {} to disk...", &name);
-        fs::write(test_filename, test_body.to_string()).unwrap();
+        fs::write(test_filename, test_body).unwrap();
     }
 
     info!("formatting the source directory");
@@ -179,10 +185,7 @@ async fn test_root_element(client: Client, name: String, fixture_path: impl AsRe
     let url = format!("file://{}", fixture_path.display());
 
     client.goto(&url).await.unwrap();
-    let description = client
-        .execute("return JSON.stringify(describeElement(document.getElementById('test-root')))", vec![])
-        .await
-        .unwrap();
+    let description = client.execute("return getTestData()", vec![]).await.unwrap();
     let description_string = description.as_str().unwrap();
     let description = serde_json::from_str(description_string).unwrap();
     (name.to_string(), fixture_path.to_path_buf(), description)
@@ -213,6 +216,7 @@ fn generate_test(name: impl AsRef<str>, description: &Value) -> TokenStream {
 
     quote!(
         #[test]
+        #[allow(non_snake_case)]
         fn #name() {
             #[allow(unused_imports)]
             use taffy::{tree::Layout, prelude::*, TaffyTree};
@@ -373,6 +377,14 @@ fn generate_node(ident: &str, node: &Value) -> TokenStream {
         _ => quote!(),
     };
 
+    let box_sizing = match style["boxSizing"] {
+        Value::String(ref value) => match value.as_ref() {
+            "content-box" => quote!(box_sizing: taffy::style::BoxSizing::ContentBox,),
+            _ => quote!(),
+        },
+        _ => quote!(),
+    };
+
     let position = match style["position"] {
         Value::String(ref value) => match value.as_ref() {
             "absolute" => quote!(position: taffy::style::Position::Absolute,),
@@ -430,6 +442,16 @@ fn generate_node(ident: &str, node: &Value) -> TokenStream {
         (overflow, scrollbar_width)
     } else {
         (quote!(), quote!())
+    };
+
+    let text_align = match style["textAlign"] {
+        Value::String(ref value) => match value.as_ref() {
+            "-webkit-left" => quote!(text_align: taffy::style::TextAlign::LegacyLeft,),
+            "-webkit-right" => quote!(text_align: taffy::style::TextAlign::LegacyRight,),
+            "-webkit-center" => quote!(text_align: taffy::style::TextAlign::LegacyCenter,),
+            _ => quote!(),
+        },
+        _ => quote!(),
     };
 
     let align_items = match style["alignItems"] {
@@ -603,8 +625,10 @@ fn generate_node(ident: &str, node: &Value) -> TokenStream {
 
     let style = quote!(taffy::style::Style {
         #display
+        #box_sizing
         #direction
         #position
+        #text_align
         #flex_direction
         #flex_wrap
         #overflow

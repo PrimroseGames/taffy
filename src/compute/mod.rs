@@ -45,33 +45,92 @@ pub use self::flexbox::compute_flexbox_layout;
 pub use self::grid::compute_grid_layout;
 
 use crate::geometry::{Line, Point, Size};
-use crate::style::{AvailableSpace, Overflow};
+use crate::style::{AvailableSpace, CoreStyle, Overflow};
 use crate::tree::{
     Layout, LayoutInput, LayoutOutput, LayoutPartialTree, LayoutPartialTreeExt, NodeId, RoundTree, SizingMode,
 };
 use crate::util::debug::{debug_log, debug_log_node, debug_pop_node, debug_push_node};
 use crate::util::sys::round;
 use crate::util::ResolveOrZero;
+use crate::{BoxSizing, MaybeMath, MaybeResolve};
 
 /// Compute layout for the root node in the tree
 pub fn compute_root_layout(tree: &mut impl LayoutPartialTree, root: NodeId, available_space: Size<AvailableSpace>) {
+    let mut known_dimensions = Size::NONE;
+
+    #[cfg(feature = "block_layout")]
+    {
+        let parent_size = available_space.into_options();
+        let style = tree.get_core_container_style(root);
+
+        if style.is_block() {
+            // Pull these out earlier to avoid borrowing issues
+            let aspect_ratio = style.aspect_ratio();
+            let margin = style.margin().resolve_or_zero(parent_size.width);
+            let padding = style.padding().resolve_or_zero(parent_size.width);
+            let border = style.border().resolve_or_zero(parent_size.width);
+            let padding_border_size = (padding + border).sum_axes();
+            let box_sizing_adjustment =
+                if style.box_sizing() == BoxSizing::ContentBox { padding_border_size } else { Size::ZERO };
+
+            let min_size = style
+                .min_size()
+                .maybe_resolve(parent_size)
+                .maybe_apply_aspect_ratio(aspect_ratio)
+                .maybe_add(box_sizing_adjustment);
+            let max_size = style
+                .max_size()
+                .maybe_resolve(parent_size)
+                .maybe_apply_aspect_ratio(aspect_ratio)
+                .maybe_add(box_sizing_adjustment);
+            let clamped_style_size = style
+                .size()
+                .maybe_resolve(parent_size)
+                .maybe_apply_aspect_ratio(aspect_ratio)
+                .maybe_add(box_sizing_adjustment)
+                .maybe_clamp(min_size, max_size);
+
+            // If both min and max in a given axis are set and max <= min then this determines the size in that axis
+            let min_max_definite_size = min_size.zip_map(max_size, |min, max| match (min, max) {
+                (Some(min), Some(max)) if max <= min => Some(min),
+                _ => None,
+            });
+
+            // Block nodes automatically stretch fit their width to fit available space if available space is definite
+            let available_space_based_size = Size {
+                width: available_space.width.into_option().maybe_sub(margin.horizontal_axis_sum()),
+                height: None,
+            };
+
+            let styled_based_known_dimensions = known_dimensions
+                .or(min_max_definite_size)
+                .or(clamped_style_size)
+                .or(available_space_based_size)
+                .maybe_max(padding_border_size);
+
+            known_dimensions = styled_based_known_dimensions;
+        }
+    }
+
     // Recursively compute node layout
     let output = tree.perform_child_layout(
         root,
-        Size::NONE,
+        known_dimensions,
         available_space.into_options(),
         available_space,
         SizingMode::InherentSize,
         Line::FALSE,
     );
 
-    let style = tree.get_style(root);
-    let padding = style.padding.resolve_or_zero(available_space.width.into_option());
-    let border = style.border.resolve_or_zero(available_space.width.into_option());
+    let style = tree.get_core_container_style(root);
+    let padding = style.padding().resolve_or_zero(available_space.width.into_option());
+    let border = style.border().resolve_or_zero(available_space.width.into_option());
+    let margin = style.margin().resolve_or_zero(available_space.width.into_option());
     let scrollbar_size = Size {
-        width: if style.overflow.y == Overflow::Scroll { style.scrollbar_width } else { 0.0 },
-        height: if style.overflow.x == Overflow::Scroll { style.scrollbar_width } else { 0.0 },
+        width: if style.overflow().y == Overflow::Scroll { style.scrollbar_width() } else { 0.0 },
+        height: if style.overflow().x == Overflow::Scroll { style.scrollbar_width() } else { 0.0 },
     };
+    drop(style);
 
     tree.set_unrounded_layout(
         root,
@@ -84,6 +143,8 @@ pub fn compute_root_layout(tree: &mut impl LayoutPartialTree, root: NodeId, avai
             scrollbar_size,
             padding,
             border,
+            // TODO: support auto margins for root node?
+            margin,
         },
     );
 }
@@ -107,11 +168,13 @@ where
     // First we check if we have a cached result for the given input
     let cache_entry = tree.get_cache_mut(node).get(known_dimensions, available_space, run_mode);
     if let Some(cached_size_and_baselines) = cache_entry {
-        debug_log!("CACHE", dbg:cached_size_and_baselines.size);
-        debug_log_node!(known_dimensions, parent_size, available_space, run_mode, sizing_mode);
+        debug_log_node!(known_dimensions, inputs.parent_size, available_space, run_mode, inputs.sizing_mode);
+        debug_log!("RESULT (CACHED)", dbg:cached_size_and_baselines.size);
         debug_pop_node!();
         return cached_size_and_baselines;
     }
+
+    debug_log_node!(known_dimensions, inputs.parent_size, available_space, run_mode, inputs.sizing_mode);
 
     let computed_size_and_baselines = compute_uncached(tree, node, inputs);
 
@@ -131,6 +194,7 @@ where
 ///     parent-relative coordinates
 ///   - Compute width/height by first rounding the top/bottom/left/right and then computing the difference
 ///     rather than rounding the width/height directly
+///
 /// See <https://github.com/facebook/yoga/commit/aa5b296ac78f7a22e1aeaf4891243c6bb76488e2> for more context
 ///
 /// In order to prevent innacuracies caused by rounding already-rounded values, we read from `unrounded_layout`
@@ -235,13 +299,13 @@ mod tests {
             )
             .unwrap();
 
-        compute_hidden_layout(&mut taffy.as_layout_tree(), root.into());
+        compute_hidden_layout(&mut taffy.as_layout_tree(), root);
 
         // Whatever size and display-mode the nodes had previously,
         // all layouts should resolve to ZERO due to the root's DISPLAY::NONE
 
         for node in [root, child_00, child_01, grandchild_00, grandchild_01, grandchild_02] {
-            let layout = taffy.layout(node.into()).unwrap();
+            let layout = taffy.layout(node).unwrap();
             assert_eq!(layout.size, Size::zero());
             assert_eq!(layout.location, Point::zero());
         }
